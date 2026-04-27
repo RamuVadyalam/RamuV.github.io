@@ -1,0 +1,91 @@
+---
+title: "Modern Orchestration: Airflow, Dagster, Prefect"
+description: "The orchestration question is no longer 'which DAG runner.' It's about asset graphs, software-defined data, and the operational model that fits your team."
+pubDate: 2025-12-15
+tags: ["orchestration", "airflow", "dagster", "prefect", "platform"]
+readingMinutes: 8
+---
+
+For most of the last decade, "orchestration" in data meant Airflow. It was the default the same way Hadoop was once the default: not because it was best at any one thing, but because everyone had it and the network effect was overwhelming. Around 2020, two real alternatives showed up with genuinely different mental models, Dagster and Prefect, and the conversation has been more interesting ever since.
+
+By 2025 the question isn't "which DAG runner do you use." All three can run DAGs. The real question is what model of *the data* you want your orchestrator to have, and what operational tradeoffs you're willing to take on with it.
+
+## The three mental models
+
+**Airflow: tasks and dependencies.** A DAG is a graph of tasks. A task is a unit of work, and the orchestrator runs tasks when their upstream tasks succeed. The data those tasks produce is opaque to Airflow. If a task succeeds, everything downstream is eligible to run, regardless of what the task actually did. That was the right abstraction in 2015. By 2025 it's the source of a lot of operational pain. Most of the complexity around backfills, partial failures, and "is this dataset fresh enough" comes from the orchestrator simply not knowing what the data is.
+
+**Dagster: software-defined assets.** A pipeline is described as a graph of *assets* (tables, files, models) and the computations that produce them. Dagster knows which asset depends on which, when each was last materialized, what partition it's in, whether it's stale, and what its observed schema looks like. Tasks still exist underneath, but they're organized around the assets they produce. The orchestrator stops being "the thing that ran a job" and starts being "the system of record for what your data looks like."
+
+**Prefect: dynamic Python flows.** A flow is a Python function. Tasks are decorated functions inside flows. Orchestration logic (scheduling, retries, parameterization, sub-flows) is expressed in Python directly. Prefect's hybrid execution model splits the control plane (Prefect Cloud or self-hosted) from the workers, which run inside your own infrastructure. That separation is operationally clean.
+
+A simple way to think about it:
+
+```
+                Mental model         Owns               Strength
+───────────────────────────────────────────────────────────────────
+Airflow         Task DAG             Schedules, runs   Ecosystem
+Dagster         Asset graph          Assets, lineage   Asset reasoning
+Prefect         Python flows         Execution model   Pythonic ergonomics
+```
+
+## Why Dagster's asset model matters
+
+The single most important shift in orchestration over the last five years is the move from task-centric to asset-centric thinking. The reasoning is pretty simple:
+
+- The thing that matters in data isn't whether a task ran. It's whether a dataset is current, complete, and correct.
+- Most of the operational pain in data pipelines is reasoning about the *state of the data*, not the state of the jobs.
+- "Backfill the last 30 days of partition `2025-09-01..2025-09-30` for these 12 assets" is a sentence that's easy to express in an asset model and almost impossible to express cleanly in a task model.
+
+Dagster's "software-defined assets" pattern, with partitions and freshness policies layered on, lets you declare what should exist, how it should be partitioned, how often it should be refreshed, and what it depends on. The orchestrator works out what to run from there. Airflow has been bolting on asset-like concepts (datasets, data-aware scheduling) since 2.4, but the design center is still task-first, and the asset abstractions feel like an addition rather than the foundation.
+
+## Where Airflow still wins
+
+Counting Airflow out would be silly. It still wins on:
+
+- **Ecosystem breadth.** Hundreds of providers covering pretty much every integration imaginable. Need to talk to some obscure SaaS? There's an Airflow operator for it.
+- **Operational maturity.** Years of production usage have surfaced and fixed nearly every edge case. The community knows how to operate Airflow.
+- **Hiring.** Most data engineers have used Airflow. That's a real cost factor and people don't talk about it enough.
+- **MWAA, Astronomer, Cloud Composer.** Multiple managed offerings with serious investment behind them.
+
+The honest take: if you're already on Airflow at scale, the cost to migrate to Dagster is real, and the benefits aren't always worth it. If you're starting fresh, the asset model is the better foundation.
+
+## Where Prefect fits
+
+Prefect has carved out a different niche. It's the most Python-native of the three. Flows are just functions, and the API stays out of your way. The hybrid execution model (control plane managed, workers in your infra) is a real operational simplification, especially for teams that don't want to operate the orchestrator themselves but also don't want their data leaving their VPC.
+
+Prefect's natural fit is teams whose work is more "scheduled Python jobs that touch data" than "manage a giant analytical asset graph." Data science workflows, ML feature pipelines, scripts that grew up into pipelines. Less ambitious than Dagster's asset model, more ergonomic than Airflow's operator pattern.
+
+## The orchestration layer in a 2025 platform
+
+A common shape in 2025:
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│  Orchestrator (Airflow / Dagster / Prefect)                   │
+│  - schedules + triggers                                       │
+│  - asset / job lineage                                        │
+│  - SLA & freshness monitoring                                 │
+└─────────────────────────┬─────────────────────────────────────┘
+                          │ delegates work to ↓
+   ┌──────────────┬───────┼─────────────┬──────────────┐
+   ▼              ▼       ▼             ▼              ▼
+ Ingest        dbt     Spark         Flink         Notebooks
+ (Fivetran,    runs    jobs          jobs          / ML jobs
+  CDC, etc.)
+```
+
+The orchestrator usually doesn't do the work. It schedules the systems that do: dbt, Spark, Flink, ingestion tools, ML training jobs. Its job is to know what should run when, what depends on what, and what failed.
+
+That framing makes the asset-vs-task question more concrete. If your platform is mostly "here are the analytical tables we care about, keep them fresh per these rules," asset orchestration is the right shape. If it's mostly "here are 200 different scheduled jobs that happen to touch data," task orchestration is fine.
+
+## A few hard-won pieces of advice
+
+- **Don't underestimate operating Airflow at scale.** A self-hosted Airflow with 1000+ DAGs is its own ongoing engineering investment. If you're going that route, plan for it. Budget headcount.
+- **The orchestrator should not be your transformation engine.** If you find yourself implementing complex transforms inside operators or tasks, you're using the wrong tool. Push the work out to dbt, Spark, or Flink and let the orchestrator coordinate.
+- **Idempotency is non-negotiable.** Whatever orchestrator you pick, every job it runs needs to be idempotent on the partition it's responsible for. Re-running the same task should produce the same result. This is purely a discipline problem. No orchestrator will save you from skipping it.
+- **Backfills are the test of your model.** "Backfill the last 90 days for these assets" should be a one-line operation, not a multi-day project. If your orchestrator can't express that cleanly, you'll feel it every time something goes wrong upstream.
+- **Lineage is part of the orchestrator's job.** Whether through OpenLineage emitters, native (Dagster), or bolted on (Airflow), you need to know what depends on what. Without lineage, incident response is guesswork and the post-mortems write themselves.
+
+## The medium-term direction
+
+Asset-centric orchestration is winning the conceptual argument. Whether that means Dagster wins the market, or Airflow successfully retrofits enough of the asset model to stay dominant, is genuinely unclear right now. Either way, the days of "orchestrator that just runs tasks on a schedule" are behind us. The data layer needs an orchestrator that understands data. The only real question left is which lineage gets you there with the least pain.

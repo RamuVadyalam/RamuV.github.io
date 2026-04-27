@@ -1,0 +1,105 @@
+---
+title: "Data Observability in 2025: Past the Five Pillars"
+description: "Freshness, volume, schema, distribution, and lineage are table stakes. The harder problems are contracts, ownership, and what 'incident' actually means for data."
+pubDate: 2025-10-20
+tags: ["observability", "reliability", "data-quality", "openlineage"]
+readingMinutes: 8
+---
+
+Data observability used to be a category pitch. By 2025 it's a checkbox. Every serious data platform has *some* answer for it, whether through a vendor like Monte Carlo, Bigeye, Anomalo, or Acryl, an open-source stack built around OpenLineage and DataHub, or a homegrown layer over dbt tests and warehouse query history.
+
+The "five pillars" framing (freshness, volume, schema, distribution, lineage) is now table stakes. It tells you when something is anomalous. It doesn't tell you whether anyone should care, who owns the fix, or what the contract was supposed to be in the first place. Those questions are where the work actually is.
+
+## What the five pillars actually catch (and don't)
+
+```
+                      ┌──────────────────────────┐
+                      │   Source systems         │
+                      └──────────┬───────────────┘
+                                 │ (CDC, ingest)
+                                 ▼
+                      ┌──────────────────────────┐
+                      │   Raw / bronze tables    │ ← freshness, volume
+                      └──────────┬───────────────┘
+                                 │ (transforms)
+                                 ▼
+                      ┌──────────────────────────┐
+                      │   Modeled / silver       │ ← schema, distribution
+                      └──────────┬───────────────┘
+                                 │
+                                 ▼
+                      ┌──────────────────────────┐
+                      │   Marts / gold / serving │ ← contracts, SLOs
+                      └──────────┬───────────────┘
+                                 │
+                                 ▼
+                          BI, ML, products
+```
+
+The pillars catch the *symptoms* most cheaply detectable from outside the data:
+
+- **Freshness.** Table hasn't updated when it should have.
+- **Volume.** Row count delta is anomalous.
+- **Schema.** Columns added, removed, or retyped.
+- **Distribution.** Null rate, value distributions, cardinality drifted.
+- **Lineage.** Where did this data come from, what depends on it.
+
+These are necessary. They are not sufficient. What they don't catch:
+
+- A pipeline that runs on time, with the right row count, the right schema, and a normal-looking distribution, but whose underlying source system silently changed the meaning of `status_code`.
+- An upstream join key whose semantics changed (e.g., the `customer_id` field now includes prospect IDs).
+- A downstream report that's "broken" because the business definition of "active user" changed last quarter and nobody updated the model.
+
+These are *semantic* failures. The metric the pillars compute looks fine. The data is wrong.
+
+## Three layers of data reliability
+
+It helps to separate three concerns that "data observability" tends to collapse:
+
+1. **Monitoring.** Automated detection of statistical anomalies. The five-pillars layer.
+2. **Lineage.** Knowing what depends on what, so you can scope an impact and inform consumers when something breaks.
+3. **Contracts.** Explicit agreements between producers and consumers about schema, semantics, and SLOs.
+
+Most teams I've watched mature their data reliability practice end up working in roughly that order. Most also discover by year two that monitoring without contracts is just a louder pager.
+
+## OpenLineage as the converging standard
+
+The interesting open-source story here is **OpenLineage**. It defines a common event model for lineage. Every job emits structured events about what it read, what it wrote, what schema, what facets. Spark, Airflow, Flink, dbt, Trino, and a growing list of others have OpenLineage emitters, either built-in or via plugins.
+
+The practical value: lineage stops being a vendor-specific tree maintained by parsing SQL after the fact. It becomes a stream of events your platform can consume into whatever store it likes (Marquez, DataHub, OpenMetadata, a vendor product, your own graph). Cross-engine lineage ("the dbt model reads from a Spark-written Iceberg table populated from a Flink job") actually works.
+
+If you're building observability infrastructure today, treating OpenLineage as the integration layer is the right default. It commoditizes the part everyone needs and lets vendors compete on the parts that are actually differentiated (anomaly detection, governance UX, integration breadth).
+
+## Shift-left: tests where the data is produced
+
+There's a real movement to push data quality checks upstream, into the producer, not the central observability layer. The mechanisms:
+
+- **dbt tests** (and now data tests + unit tests) on every model, run as part of the build.
+- **Data contracts.** A producer publishes a schema and a set of guarantees (`order_id` is unique and non-null, `created_at` is monotonically non-decreasing within a partition, etc.). Consumers code against those guarantees, and contract violations fail the producer's CI.
+- **Great Expectations / Soda** check suites embedded in pipelines.
+- **Schema Registry** for streaming, with strict compatibility modes.
+
+The argument for shift-left is the same as for software. A defect caught at production time is far cheaper than one caught by a downstream consumer three hops away. The argument against is overhead: tests slow down builds, contracts add coordination cost. In practice the right answer is some-of-each. Hard contracts at the boundaries (raw ingestion, exposed marts), looser tests in the middle.
+
+## What "incident" means for data
+
+This is the part that's still being figured out. For services, an incident has a clear shape. There's an SLO, it's burning, you page someone, they mitigate, you write a postmortem. For data, you can have all the right alerts and still not have a workable incident process.
+
+Concrete questions worth answering explicitly on any data platform:
+
+- **Who owns this dataset?** Not "the data team." A specific person or rotation, with a PagerDuty-equivalent.
+- **What's the SLO?** Freshness target, completeness target, accuracy target. Without a target, "this dataset is late" isn't actionable.
+- **Who are the consumers?** Lineage gives you the technical answer. The business answer requires actual product knowledge.
+- **What's the mitigation playbook?** "Re-run the pipeline" is rarely the answer. Often the right move is to flag a known-bad partition, communicate to consumers, and fix forward.
+- **What counts as a postmortem-worthy incident?** Most data orgs over-page on technical anomalies and under-page on actual business impact. Calibrating that takes deliberate work.
+
+## The 2025 shape
+
+The data observability market is consolidating around a few patterns:
+
+- A vendor or open-source platform handling the five pillars + lineage + a UI for cataloging and discovery.
+- Producer-side contract testing in CI (dbt tests, schema registry, contract enforcement).
+- OpenLineage as the cross-engine lineage substrate.
+- Explicit ownership and SLOs for tier-1 datasets, with everything else managed by policy.
+
+The maturity gradient is mostly organizational, not technical. Installing the tool isn't the hard part. The hard part is getting the org to treat critical datasets as products with owners, contracts, and SLOs. And to actually act on the alerts those tools produce.

@@ -1,0 +1,100 @@
+---
+title: "Snowflake, BigQuery, Databricks: Where the Cloud Data Warehouse Is Going"
+description: "Three different architectures, increasingly converging on the same shape: separated storage and compute, open table formats, and multi-engine analytics over the same data."
+pubDate: 2026-01-26
+tags: ["warehouse", "snowflake", "bigquery", "databricks", "lakehouse"]
+readingMinutes: 8
+---
+
+For most of the last decade the "cloud data warehouse" market was effectively three vendors: Snowflake, BigQuery, and Databricks (which insisted, correctly, that it wasn't really a warehouse). They started from genuinely different architectures and competed on different axes. By 2025 they're converging. Not on identical products, but on a shared shape that's increasingly hard to differentiate at the marketing level.
+
+Worth looking at how they got there and what's still actually different.
+
+## The three starting points
+
+**Snowflake (2014).** Built around the insight that storage and compute should be separately scalable. Multi-cluster shared data: data lives in object storage in a proprietary micro-partitioned format, and any number of compute "warehouses" can read it concurrently. Pricing is per-credit (where credits = warehouse size × runtime). The bet that paid off: SQL-first, multi-cloud, ergonomically clean.
+
+**BigQuery (2010-ish, GA 2012).** Built on Google's internal Dremel architecture. Serverless from day one. No clusters to manage, queries dispatched against a shared pool of slots. Pricing originally per-bytes-scanned, now also slot-reservation. The bet that paid off: zero ops, BI-friendly, deeply integrated into the GCP ecosystem.
+
+**Databricks (2013).** Originally a managed Spark platform, gradually rebuilt around the lakehouse pattern. Open-format tables (Delta) on object storage, with Spark and the Photon engine as the primary compute. Pricing is per-DBU. The bet that paid off: notebooks, ML, and open-format storage as a counter-positioning to closed warehouses.
+
+## What's actually different (still)
+
+Despite the convergence, real differences remain:
+
+**Snowflake.**
+- Separate compute clusters for separate workloads is the cleanest isolation model of the three.
+- Closed table format historically (FDN micro-partitions); now also writes and reads Iceberg as a managed external table.
+- Polaris catalog gives Snowflake a credible open-catalog story.
+- Streaming via Snowpipe Streaming and dynamic tables is improving but still feels grafted on relative to a proper streaming engine.
+- SQL ergonomics and developer experience are consistently best-in-class.
+
+**BigQuery.**
+- Truly serverless. Nothing to size, nothing to suspend.
+- Slots-based concurrency is the cost lever; reservations vs on-demand is a real architectural choice with cost implications.
+- Strong ML integration (BQML, Vertex AI, embedded inference).
+- BigLake brings Iceberg/Delta/Hudi tables into the BigQuery query surface.
+- Best fit when you're already on GCP and want minimum operational burden.
+
+**Databricks.**
+- The lakehouse pattern is native, not retrofitted. Storage is always open-format on your bucket.
+- Photon is a serious vectorized engine. The gap to "warehouse" performance has closed.
+- Strongest story for ML workloads end-to-end (Mosaic, MLflow, Unity Catalog).
+- Unity Catalog as the governance layer, with growing Iceberg interop via UniForm and the Tabular acquisition.
+- Operationally heavier than BigQuery, more flexible than Snowflake.
+
+## The convergence
+
+What's collapsing the differences:
+
+**1. Open table formats everywhere.** All three now read and write Iceberg (or Iceberg-compatible) tables. The "warehouse owns the data" model is being replaced with "your data is on your object storage in an open format, the warehouse is one of several engines that can read it." That's a real architectural shift, not just a feature.
+
+**2. Catalog as the new battleground.** Polaris (Snowflake), Unity Catalog (Databricks), BigQuery's built-in catalog, and the broader Iceberg REST spec are all converging toward "the catalog is the thing that owns governance, lineage, and access control." The format is solved. The catalog is where vendors compete now.
+
+**3. Serverless and elasticity.** Snowflake added Snowpark serverless functions and continues to push automatic right-sizing. Databricks SQL is the serverless-warehouse-shaped workload. BigQuery has been here since the start. The "always-pay-for-clusters" model is fading.
+
+**4. ML and AI integration.** All three offer SQL functions over LLMs, embedding generation, and vector search. The maturity differs but the direction is identical.
+
+**5. Streaming integration.** Snowflake's dynamic tables, BigQuery's continuous queries, Databricks' DLT. Each is the same idea: declaratively keep some derived table fresh as upstream data changes.
+
+```
+                  ┌────────────────────────────────────┐
+                  │   Open table formats (Iceberg)     │
+                  │   on object storage                │
+                  └─────┬────────┬───────────┬─────────┘
+                        │        │           │
+            ┌───────────▼──┐  ┌──▼─────────┐ ┌▼──────────────┐
+            │   Snowflake  │  │ BigQuery   │ │  Databricks   │
+            │   (Polaris)  │  │ (BigLake)  │ │  (Unity/UF)   │
+            └──────────────┘  └────────────┘ └───────────────┘
+                              ↓
+                Other engines (Trino, Spark, ClickHouse,
+                StarRocks, DuckDB) reading the same tables
+```
+
+## The architectural question that's still open
+
+If your data lives in open-format tables on object storage, and any of these engines can query it, then the "warehouse" decision is more about *workload fit* than *where the data lives*. Different parts of your organization might use different engines against the same underlying tables.
+
+This is genuinely new. A reasonable platform shape in 2025:
+
+- **Source of truth.** Iceberg tables on S3/GCS/ADLS, governed by a REST-compliant catalog.
+- **Heavy ETL.** Spark on Databricks (or your own Spark). Photon is fast enough that this is reasonable for production.
+- **BI and ad-hoc analytics.** Snowflake or BigQuery against the same Iceberg tables.
+- **Low-latency dashboards.** ClickHouse or StarRocks against the same data.
+- **Local exploration.** DuckDB on a laptop, against a sample.
+
+You can credibly do all of this against the same physical data. Doesn't mean you should (operating multiple engines is real overhead), but it means the lock-in story has shifted from "your data is captive" to "moving between engines is annoying but not migration-grade."
+
+## What I'd watch over the next 12 months
+
+- **Catalog interop.** How real does the cross-vendor Iceberg REST story actually become? Is Polaris readable by Unity, and vice versa, in a way that survives access-control nuances?
+- **Compute economics.** Serverless pricing models are diverging from cluster pricing models in interesting ways. The "per query" vs "per second of compute" tradeoff is workload-dependent and worth modeling properly.
+- **The streaming-warehouse boundary.** Dynamic tables, DLT, and continuous queries are all answering "how do I keep an analytical view fresh." Whichever model wins will reshape how teams build serving layers.
+- **Embedded ML and vector primitives.** SQL UDFs over LLMs, native embedding generation, vector search. These are shipping rapidly. The differentiator will be evaluation, governance, and cost control. Not raw capability.
+
+## The take
+
+The cloud data warehouse market is consolidating architecturally even as the vendors stay distinct as products. The most important consequence for platform teams is that you should design for a world where the warehouse is *an engine*, not *the system of record*. Put your data in open-format tables, treat the catalog as a first-class architectural decision, and pick warehouses for workload fit rather than data gravity.
+
+The decade where you bet your platform on a single vendor's storage format is ending. The decade where you bet on the catalog and the open-format ecosystem is starting.

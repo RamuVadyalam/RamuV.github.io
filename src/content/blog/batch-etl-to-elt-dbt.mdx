@@ -1,0 +1,106 @@
+---
+title: "From Batch ETL to ELT: How dbt Quietly Won"
+description: "ELT didn't beat ETL on the merits — it beat ETL because warehouse compute became cheap and SQL became the lingua franca. dbt is the side effect."
+pubDate: 2025-11-17
+tags: ["dbt", "elt", "warehouse", "transformation"]
+readingMinutes: 7
+---
+
+A decade ago, "ETL" was a job title. There were vendors (Informatica, Talend, Pentaho, Ab Initio), there were dedicated ETL servers, and there was a clear three-step pipeline: extract from sources, transform on a dedicated compute layer, load into the warehouse. The transformations happened *outside* the warehouse because warehouses were expensive, finicky, and bad at heavy lifting.
+
+Today the dominant pattern is ELT. You extract into a staging layer in the warehouse and then transform with SQL inside the warehouse itself. The middle "T" moved into the destination. dbt is the framework most teams use to organize that work, and the surrounding ecosystem (Fivetran, Airbyte, dbt, semantic layers, BI tools) has reorganized around the new shape.
+
+This shift wasn't really about dbt or about a better methodology. It was about cost and labor curves. dbt happened to be there with the right interface when the curves crossed.
+
+## What changed in the warehouse
+
+Three things, roughly in order:
+
+1. **Storage and compute separated.** Snowflake's architecture (and BigQuery's slot model, and Databricks' lakehouse) made warehouse compute elastic. Scale up for a transform job, scale down when you're done. That destroyed the economic argument for a dedicated transform tier overnight.
+
+2. **Warehouse compute got fast.** Modern columnar warehouses are very good at large aggregations, joins, and window functions. They're routinely faster than a hand-rolled Spark job for the same SQL workload, with a fraction of the operational burden.
+
+3. **SQL became the universal interface.** Analysts know SQL. ML engineers know SQL. Data engineers know SQL. Pushing transformation into SQL inside the warehouse expanded who could contribute to the modeling layer in a way nothing else has.
+
+The result: extracting raw data, loading it into the warehouse, and transforming it in place became cheaper *and* more productive than the old pattern. ELT won on both axes at once.
+
+## What dbt actually is
+
+It helps to be precise here. dbt is *not* a transformation engine. It generates SQL and dispatches it to a warehouse. What it brings is software-engineering discipline to SQL transformations:
+
+```
+models/
+  staging/         ← thin, source-shaped views over raw tables
+    stg_orders.sql
+    stg_customers.sql
+  intermediate/    ← reusable building blocks
+    int_orders_with_customers.sql
+  marts/           ← business-facing tables
+    fct_orders.sql
+    dim_customers.sql
+```
+
+What dbt actually gives you:
+
+- **Modular SQL** with `ref()` building a DAG.
+- **Version control** of your transformation logic alongside everything else.
+- **Tests** as first-class artifacts (uniqueness, not-null, accepted values, custom).
+- **Documentation** generated from the model definitions.
+- **Materializations** (view, table, incremental, ephemeral, snapshot) controlled by config rather than imperative code.
+- **Environments** (dev/staging/prod) via target switching.
+
+None of these are revolutionary on their own. The bundle, made conventional and easy to adopt, is what changed the day-to-day work of data teams.
+
+## The shape of the modern data stack
+
+The pattern that emerged:
+
+```
+Source systems
+    │
+    ▼
+Ingest tools (Fivetran / Airbyte / Stitch / custom CDC)
+    │
+    ▼
+Raw / bronze tables in warehouse  ← source of truth, keep cheap
+    │
+    ▼
+dbt staging models (1:1 with raw)
+    │
+    ▼
+dbt intermediate / mart models    ← business logic lives here
+    │
+    ├──► BI tools (Looker, Tableau, Mode, Hex, Lightdash)
+    ├──► Reverse ETL (Hightouch, Census) → SaaS systems
+    └──► Semantic layer (MetricFlow, Cube) → consistent metrics
+```
+
+The boundaries are clean. Ingestion is a managed problem, transformation is a code problem, serving is whatever-you-want. Teams scale by adding more dbt models, not by re-architecting.
+
+## The semantic layer: the next move
+
+The thing dbt got right (modular SQL with tests and lineage) is also the thing dbt didn't fully solve. If two BI dashboards both compute "monthly active users" but each defines it slightly differently, the warehouse can't tell you which one is right. The semantic layer is the attempt to make that definition canonical.
+
+dbt's MetricFlow (acquired with Transform), Cube, and the LookML model are all answering the same question from different angles: where do business metrics live, and how do you guarantee consistency across consumers?
+
+For 2025 the semantic layer is in a real but unsettled state. Most platforms have one. Most BI tools half-integrate with one or another. The standardization moment hasn't quite happened. It's roughly where dbt itself was in 2018: clearly the right idea, not yet inevitable.
+
+## Where ELT is the wrong answer
+
+It's worth being honest about where pure ELT in the warehouse breaks down:
+
+- **Heavy unstructured / semi-structured processing.** Images, audio, large text blobs at scale. Object storage plus Spark or a notebook environment is still the right answer.
+- **ML feature pipelines with custom Python.** You can do a lot in SQL, but feature engineering with custom transforms, embedding generation, or external API calls eventually wants Python. dbt-py models and Snowpark/BigFrames close some of this gap. Not all of it.
+- **Cost-sensitive bulk batch transforms.** At very large scale, raw warehouse compute is more expensive per CPU-hour than running Spark on spot instances against the same Iceberg tables. The "lakehouse for transformation, warehouse for serving" pattern is a real architecture, not just lakehouse marketing.
+- **Streaming-first pipelines.** ELT is fundamentally a batch model. Streaming transforms still want Flink or streaming SQL, with the result landing as a queryable table.
+
+## The principal-engineer take
+
+ELT and dbt are the default for analytics transformation now, and that's largely correct. The interesting questions have moved on:
+
+- How do you keep dbt projects from becoming the next monolith? (Multi-project setups, dbt Mesh, contract enforcement.)
+- Where does the semantic layer actually live, and who owns it?
+- How do you get streaming-fresh marts without rebuilding the warehouse model in Flink?
+- What does dbt look like over Iceberg, when "warehouse" is plural?
+
+The shift from ETL to ELT was the answer to a cost question. The shift past dbt-as-default will be answers to ownership and freshness questions. dbt isn't going away. It'll get pushed into the boring middle of the stack, where the most successful infrastructure tends to live.

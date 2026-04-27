@@ -1,0 +1,30 @@
+---
+import { formatDate, isoDate, type Post } from '~/lib/posts';
+import { withBase } from '~/lib/url';
+import TagPill from './TagPill.astro';
+
+interface Props {
+  post: Post;
+  compact?: boolean;
+}
+const { post, compact = false } = Astro.props;
+const href = withBase(`/blog/${post.id}`);
+---
+<article class="group border-b border-[var(--color-border)] py-6 last:border-b-0">
+  <div class="flex items-baseline justify-between gap-4">
+    <h2 class={compact ? 'text-lg font-semibold' : 'text-xl font-semibold sm:text-2xl'}>
+      <a href={href} class="text-[var(--color-fg)] no-underline group-hover:text-[var(--color-accent)]">
+        {post.data.title}
+      </a>
+    </h2>
+    <time class="shrink-0 font-mono text-xs text-[var(--color-muted)]" datetime={isoDate(post.data.pubDate)}>
+      {formatDate(post.data.pubDate)}
+    </time>
+  </div>
+  <p class="mt-2 text-[var(--color-muted)]">{post.data.description}</p>
+  {post.data.tags.length > 0 && (
+    <div class="mt-3 flex flex-wrap gap-2">
+      {post.data.tags.map((t) => <TagPill tag={t} />)}
+    </div>
+  )}
+</article>

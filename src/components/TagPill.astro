@@ -1,0 +1,18 @@
+---
+import { tagSlug } from '~/lib/posts';
+import { withBase } from '~/lib/url';
+interface Props {
+  tag: string;
+  count?: number;
+  href?: string;
+}
+const { tag, count, href } = Astro.props;
+const link = href ?? withBase(`/tags/${tagSlug(tag)}`);
+---
+<a
+  href={link}
+  class="inline-flex items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-card)] px-2.5 py-0.5 font-mono text-xs text-[var(--color-muted)] no-underline transition hover:text-[var(--color-fg)] hover:border-[var(--color-accent)]"
+>
+  <span>#{tag}</span>
+  {count !== undefined && <span class="text-[var(--color-muted)]/70">({count})</span>}
+</a>

@@ -1,0 +1,79 @@
+---
+title: "The Evolution of Lakehouse Architecture"
+description: "How Delta, Iceberg, and Hudi got us from immutable parquet dumps to ACID tables on object storage — and where the convergence is heading."
+pubDate: 2025-09-08
+tags: ["lakehouse", "iceberg", "delta", "hudi", "architecture"]
+readingMinutes: 8
+---
+
+The "lakehouse" label is recent. The underlying problem is not. Anyone who built on Hadoop in the 2010s remembers the same pattern. Object storage (or HDFS) was cheap and infinitely scalable, but the moment you needed transactional semantics (upserts, schema evolution, concurrent readers and writers, snapshot isolation) you hit a wall. The wall was the file system. Parquet was a great columnar format. A directory full of parquet files was a terrible table.
+
+Three projects independently set out to fix this in the late 2010s: Delta Lake (Databricks), Apache Hudi (Uber), and Apache Iceberg (Netflix). They converged on a similar idea. The table is not a directory of files; it's a metadata layer pointing at files. The format of that metadata layer is what they argue about.
+
+## What "lakehouse" actually buys you
+
+Strip the marketing, and a lakehouse table format gives you four things on top of object storage:
+
+1. **ACID semantics** via an atomic commit to a metadata pointer.
+2. **Snapshot isolation and time travel** by keeping old metadata versions.
+3. **Schema and partition evolution** without rewriting historical data.
+4. **A single source of truth** that multiple engines can read consistently.
+
+The fourth one is the one that turned out to matter most. Once Trino, Spark, Flink, ClickHouse, DuckDB, and the cloud warehouses all agreed they could read the same table format, the warehouse-vs-lake debate started to dissolve.
+
+## The three formats, briefly
+
+```
+                        ┌────────────────┐
+                        │  Query engine  │  Spark / Trino / Flink / DuckDB
+                        └────────┬───────┘
+                                 │ reads metadata, then files
+                ┌────────────────┴────────────────┐
+                │                                 │
+        ┌───────▼────────┐                ┌───────▼────────┐
+        │  Catalog       │                │  Object store  │
+        │  (Glue, Unity, │                │  (S3, GCS,     │
+        │   Polaris,     │                │   ADLS)        │
+        │   REST)        │                │                │
+        └───────┬────────┘                └───────┬────────┘
+                │ table → current metadata        │
+                └─────────────► metadata.json ────┘
+                                        │
+                                        ▼
+                                 manifest list → manifests → data files
+```
+
+**Delta Lake** uses a transaction log. An ordered sequence of JSON commit files in `_delta_log/`, periodically checkpointed to parquet. Readers replay the log to get the current view of the table. Writers append a new commit. Conflicts are resolved with optimistic concurrency. The model is conceptually clean and maps well to Spark, where it originated.
+
+**Iceberg** uses a tree of metadata files. The current state of a table is a single `metadata.json` pointing at a manifest list pointing at manifests pointing at data files. Snapshots are first-class. Commits swap the pointer atomically. Partition transforms (bucketing, truncation, time bucketing) are part of the metadata, which lets the format evolve partition layout without rewriting data. A quietly important feature once you've lived through a partition strategy mistake at scale.
+
+**Hudi** comes from a different angle. It was built around streaming upserts and incremental queries. It supports two storage layouts (copy-on-write for read-optimized and merge-on-read for write-optimized) and has rich indexing for record-level updates. If your workload was "ingest CDC from 200 sources, deduplicate by primary key, and serve fresh," Hudi was the only honest answer for years.
+
+## The convergence
+
+For a long time the three formats competed on features. In 2024 the conversation shifted decisively toward Iceberg, and the catalog layer became the real story.
+
+Two events made this concrete. First, Databricks acquired Tabular (the company founded by Iceberg's original authors) in mid-2024. Second, Snowflake open-sourced **Polaris**, a REST catalog implementation built around the Iceberg REST catalog spec, and contributed it to the Apache Software Foundation. Around the same time, Databricks open-sourced parts of **Unity Catalog** and committed to interoperability with the Iceberg REST spec.
+
+The implication: the format wars matter less than the catalog wars. If every major engine speaks the Iceberg REST API, you get a real multi-engine analytical surface (Spark for ETL, Trino for ad-hoc, ClickHouse or StarRocks for low-latency dashboards, DuckDB for local exploration) over the same physical tables.
+
+Delta is hedging via **UniForm**, which writes Iceberg metadata alongside Delta metadata so engines that prefer Iceberg can still read Delta tables. Hudi continues to fill its niche around streaming ingest with primary-key indexes; recent Hudi releases (1.x) restructured the metadata table and improved compatibility with Iceberg-style readers.
+
+## Where it bites in practice
+
+A few realities that get glossed over in vendor decks:
+
+- **Small files are still the enemy.** ACID semantics don't help if you're committing thousands of tiny files per minute. Compaction strategy is part of the operational burden of any lakehouse table. It's not free, and the right strategy is workload-specific.
+- **Metadata grows.** Iceberg's manifest tree gets expensive when you have millions of snapshots or frequent partition changes. Snapshot expiration and metadata cleanup need to be scheduled.
+- **Schema evolution is solved; semantic evolution is not.** The format will let you add, drop, or rename columns. It won't tell your downstream consumers that the meaning of a field changed. That's a contract problem, not a format problem.
+- **Concurrent writes still require care.** Optimistic concurrency works fine until you have many concurrent writers fighting for the same partitions. Some workloads still benefit from a single-writer pattern with a proper queue in front.
+
+## What to take from this
+
+The lakehouse pattern is now the default for new analytical platforms, and Iceberg is the de facto open table format. The interesting design decisions have moved up the stack:
+
+- Which catalog do you standardize on, and what's the migration path if you're wrong?
+- Which engines do you actually need, and how do you keep their behavior consistent against the same tables?
+- How do you operate compaction, expiration, and schema contracts at scale?
+
+The formats will keep converging. The hard part (the part nobody buys at the booth) is operating the platform you've built on top of them.

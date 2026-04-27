@@ -1,0 +1,109 @@
+---
+title: "LLMs and Data Engineering: What's Real, What's Hype"
+description: "RAG pipelines, vector stores, embedding ETL, and text-to-SQL — what data engineers should actually build for, separate from the marketing wave."
+pubDate: 2026-01-12
+tags: ["llm", "ai", "rag", "vector-database", "platform"]
+readingMinutes: 9
+---
+
+The LLM wave hit data engineering harder than most people predicted, and in ways that don't match the headline narrative. The headline narrative is "AI will replace SQL writers." The actual story is more interesting. LLMs created several new categories of pipeline that data engineers now own, while the original promise (intelligent agents that just figure out your data) is hitting predictable limits around context, semantics, and cost.
+
+Here's what's real in 2025, what's hype, and where the engineering work is concentrating.
+
+## The new categories of pipeline
+
+Three patterns have stabilized into things data engineers genuinely build:
+
+**1. Embedding ETL.** Take some corpus (documents, messages, tickets, code, product catalog), chunk it, generate embeddings, store the vectors with metadata, keep them in sync as the source changes. This is just ETL with a vector sink. The hard parts are familiar: change capture, deduplication, cost control, schema evolution of the embedded payload, and reindexing when you switch embedding models (which you will).
+
+**2. RAG-serving pipelines.** Retrieval-Augmented Generation. At query time, retrieve relevant context from a vector store (usually combined with keyword and structured search), stuff it into a prompt, ask the LLM, return the answer. The "pipeline" part is everything around retrieval: query rewriting, hybrid search, reranking, response caching, evaluation, observability. None of this is novel computer science. It's all integration engineering.
+
+**3. LLM-assisted analytical interfaces.** Text-to-SQL, semantic-layer-backed natural language analytics, copilots for BI tools. The interesting realization here is that text-to-SQL works dramatically better when the LLM is generating against a *semantic layer* (with curated metrics and dimensions) rather than raw warehouse schemas. The semantic layer becomes the contract that constrains the model.
+
+```
+   User question  ──►  LLM (rewrite, classify)
+                            │
+                            ▼
+                   ┌────────────────────┐
+                   │  Retrieval layer   │
+                   │  - vector search   │
+                   │  - keyword search  │
+                   │  - structured filter│
+                   └─────────┬──────────┘
+                             │ candidates
+                             ▼
+                   ┌────────────────────┐
+                   │  Reranker (often   │
+                   │  another model)    │
+                   └─────────┬──────────┘
+                             │ top-k context
+                             ▼
+                   ┌────────────────────┐
+                   │  Prompt assembly   │
+                   │  + LLM call        │
+                   └─────────┬──────────┘
+                             │
+                             ▼
+                       Cached response
+```
+
+## The vector database question
+
+Vector databases are now part of the platform conversation. The honest assessment:
+
+- **For many workloads, `pgvector` (or `pgvectorscale`) on Postgres is sufficient.** Same operational story as the rest of your Postgres footprint, transactional consistency with your other data, mature ecosystem. The performance ceiling is real but high enough for most production RAG use cases.
+- **Dedicated vector DBs** (Pinecone, Weaviate, Qdrant, Milvus) earn their keep when you're doing >100M vectors, complex filtering, low-latency retrieval at scale, or want hybrid search built-in. They're better at vectors than Postgres is. They're also another system to operate.
+- **Lakehouse vector indexes** (Databricks Vector Search, BigQuery vector search, Snowflake Cortex Search) are converging the lakehouse and vector world. Embeddings live in the same table as the source data, which is operationally appealing. Still maturing.
+
+The architectural question to ask before reaching for a dedicated vector DB: do you actually have a workload that justifies a separate system, or are you cargo-culting from Twitter? Most teams' first RAG use case fits comfortably in Postgres.
+
+## Embedding ETL is the part that gets underestimated
+
+The "easy" part of RAG demos (chunk a doc, embed, store) is the part that breaks at production scale:
+
+- **Change capture.** Your corpus updates. You need incremental embedding, not full re-embedding. Source changes need to find their way to the vector store with reasonable freshness.
+- **Chunking strategy.** Fixed-size chunks are the default and often wrong. Document structure matters. Semantic chunking matters. Chunking is essentially feature engineering for retrieval quality.
+- **Dedup and idempotency.** Re-embedding the same chunk should produce the same record, not a duplicate. Re-runs need to be cheap and safe.
+- **Model migrations.** When you switch from one embedding model to another (you will, repeatedly), every existing vector is now in the wrong space. You need a migration story: dual-write, shadow indexes, or full reindex with rollback.
+- **Cost control.** Embedding APIs are billed per token. A naive "embed everything on every change" pipeline can run a remarkable bill before anyone notices.
+- **PII and governance.** Vector representations are not inherently safer than the source text. Whatever access controls apply to the source need to apply to the vector store. Most early implementations got this wrong.
+
+These are exactly the problems data engineering is built to solve. They just look different in a vector context.
+
+## Where text-to-SQL really lands
+
+The pure "LLM writes SQL against your warehouse" demo is impressive in 30 seconds and terrible in production. The reasons are predictable:
+
+- The model doesn't know which of two similarly-named tables to use.
+- It doesn't know the business meaning of `status_code = 7`.
+- It generates queries that scan terabytes when a partition filter was implicit in the question.
+- It produces "answers" that are syntactically valid SQL and semantically wrong.
+
+Where it does work, and works well, is when the model is generating against a constrained surface. A well-curated semantic layer with named metrics, dimensions, and filters. The LLM picks from a known vocabulary instead of inventing SQL from scratch. Cube, MetricFlow, LookML, and similar layers are essentially providing the contract that makes text-to-LLM-to-query reliable.
+
+The takeaway for data engineers: investment in the semantic layer pays compounding dividends as soon as LLM-driven interfaces enter the picture. It was good practice for BI consistency. It's now infrastructure for AI.
+
+## The agentic pattern
+
+Beyond pure RAG, "agents" are starting to show up in data workflows. Pipelines where an LLM is part of the control flow, not just the response generator. Examples:
+
+- An agent that reads a ticket, queries lineage, identifies the upstream dataset, opens a PR.
+- An agent that monitors data quality alerts, classifies them, and routes them.
+- An agent that translates a business request into a sequence of SQL queries against the semantic layer.
+
+The realistic assessment: these work for narrow, well-scoped tasks where the cost of being wrong is low and the work is genuinely repetitive. They don't work for open-ended "figure out what's wrong with this dataset" workflows, and pretending they do is how teams burn six months and end up with a pile of unreliable autonomy.
+
+## Observability becomes harder
+
+A few new operational concerns:
+
+- **Prompt and response logging** for debugging and compliance. Tools like Langfuse, Phoenix, and Helicone exist for a reason.
+- **Evaluation pipelines.** You need automated regression tests for "did the answer get worse" as you change models or prompts. This is genuinely a new category.
+- **Cost per query** is variable in a way warehouse queries aren't. A single complex query can be 100x the cost of a simple one. Cost monitoring at the query level matters.
+- **Hallucination is not a bug to be fixed; it's a probability to be managed.** Production systems need confidence signals, citation patterns, and clear failure modes.
+
+## The honest take
+
+LLMs didn't replace data engineering. They added new pipeline categories (embedding ETL, retrieval pipelines, evaluation infrastructure) and made some old practices (semantic layers, contracts, lineage) more valuable than before. The teams getting value from LLMs in data are mostly the teams that already had decent platform fundamentals. The teams that didn't are mostly producing impressive demos and unreliable systems.
+
+If you're a data engineer wondering what to do about the AI wave, the answer is the boring one. Get the platform fundamentals right. Invest in the semantic layer. Treat embedding pipelines like the ETL workloads they are. Be skeptical of any pitch that doesn't have an evaluation story. The hype will subside. The pipelines will stay.

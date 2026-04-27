@@ -1,0 +1,86 @@
+---
+title: "Cost Optimization in the Modern Data Stack"
+description: "Compute is the dominant cost in modern data platforms. Where it leaks, why autoscaling doesn't save you, and the FinOps practices that actually move the bill."
+pubDate: 2025-11-03
+tags: ["finops", "warehouse", "cost", "platform"]
+readingMinutes: 8
+---
+
+The modern data stack is great at getting you to "it works." It's not great at telling you what it's going to cost when it does. Most platforms I've watched go through a cost review discover the same thing: a small number of workloads drive the majority of the bill, and most of those are doing far more work than anyone realized.
+
+This post is about where the spend actually goes in a 2025 cloud-native data platform, why the obvious cost levers under-deliver, and the practices that consistently move the bill.
+
+## The shape of the bill
+
+In a typical modern data stack (object storage + a cloud warehouse or lakehouse + an orchestrator + ingest + BI), the rough cost breakdown looks something like:
+
+```
+                     %
+Compute (warehouse/lakehouse)     ████████████████████████  60–80%
+Ingest (Fivetran, Airbyte, etc.)  █████                     5–15%
+Storage (S3/GCS/ADLS + warehouse) ████                      3–10%
+Orchestration / observability     ██                        1–5%
+BI tool seats / serving           ███                       3–10%
+```
+
+Storage is almost never the problem. Compute almost always is. Most of the levers that *feel* like cost optimization (data retention, table dropping, storage tiering) operate on the smallest part of the bill.
+
+## Why autoscaling doesn't save you
+
+Snowflake auto-suspends warehouses. BigQuery has on-demand pricing. Databricks clusters can autoscale and auto-terminate. All of these *limit* runaway spend. None of them *prevent* doing too much work in the first place.
+
+The pattern that bites:
+
+- A dashboard that refreshes every minute against a table partitioned by day.
+- An ML feature pipeline that recomputes everything from raw rather than incrementally.
+- A `SELECT *` from a wide table behind a BI tool that re-runs the same query 200 times an hour because nobody enabled result caching.
+- A reverse-ETL job that ships every row, every hour, to a SaaS at a per-row API cost when only the changed rows mattered.
+
+Autoscaling doesn't help any of these. The compute is genuinely doing work. The work is just unnecessary.
+
+## Where the spend actually leaks
+
+A small number of patterns account for most of the avoidable spend:
+
+**1. Unbounded scans.** A query that doesn't prune partitions, or scans all columns when it needs three. In a columnar warehouse, the cost difference between `SELECT * FROM events WHERE day = '2025-09-01'` and `SELECT user_id, event_type FROM events WHERE day = '2025-09-01' AND user_id = ?` can easily be 100x. Cluster keys, partition keys, and projection are not optional.
+
+**2. Recomputing instead of incrementing.** dbt's `incremental` materialization, BigQuery's MERGE patterns, Iceberg's incremental reads, Spark's structured streaming. They all exist for a reason. Recomputing a 2 TB model nightly when only 20 GB changed is the most common form of compute waste.
+
+**3. Dashboard storms.** BI tools that hit the warehouse on every page load, with no caching layer in between, are a multiplier on every query. Most modern warehouses have a query result cache. Many BI tools effectively bypass it through query parameterization. A read-through cache (warehouse cache, BI extract, or a dedicated serving layer) almost always pays for itself.
+
+**4. Right-sized once, wrong-sized forever.** Warehouse and cluster sizes get set by whoever was investigating a slow query in 2023 and never revisited. A "Large" Snowflake warehouse running ELT that no longer needs it is pure margin for the vendor.
+
+**5. Dev/test/sandbox leakage.** Personal sandboxes that nobody suspends, dev clusters that nobody downsizes, scheduled tests that nobody disabled when the project sunset. Small per item, large in aggregate.
+
+## What actually works
+
+In rough order of leverage:
+
+**Cost attribution by team, project, or pipeline.** You can't optimize what you can't attribute. Tag every warehouse, every cluster, every job, every dbt model with an owning team and an environment. Build a daily report that breaks down spend by owner and trend. Most orgs experience a step-function reduction in spend the first quarter they make the bill visible to the people who own the workloads. Not because they crack down, but because engineers don't *want* to be the team running the most expensive job.
+
+**Query-level cost telemetry.** Snowflake's `QUERY_HISTORY`, BigQuery's `INFORMATION_SCHEMA.JOBS`, Databricks query history. All of them expose per-query bytes scanned, credits consumed, DBUs. Build a daily "top 50 most expensive queries" report. Half of them will be obvious wins (missing partition filter, runaway test, broken cache).
+
+**dbt model exposure to cost.** dbt + warehouse query history makes it possible to attribute compute to specific models. The `dbt-snowflake-monitoring` style packages (or the equivalents for BigQuery/Databricks) surface this directly. A `models/` directory with cost-per-run alongside latency is a different conversation than one with neither.
+
+**Materialized views and incremental builds.** Move recurring expensive aggregations into materialized views or incremental models. Snowflake materialized views, BigQuery materialized views, and Iceberg incremental reads are all serviceable. The right answer depends on your engine.
+
+**Warehouse and cluster right-sizing.** Run smaller for longer rather than bigger for shorter. Most warehouses scale near-linearly with size up to a point, beyond which you're just paying for parallelism you can't use. Dedicated warehouses for ELT, BI, and ad-hoc, each sized to its actual workload, beats one shared mega-warehouse almost every time.
+
+**Storage hygiene where it actually matters.** S3/GCS lifecycle policies for cold partitions, snapshot expiration on Iceberg/Delta tables (metadata costs are real at scale), and an enforced retention policy for raw zones. Storage isn't the bill, but storage *operations* (listing files, scanning partitions, parsing metadata) show up as compute cost.
+
+## The FinOps angle
+
+Treat data platform spend like any other cloud spend. With a FinOps practice, an owner, monthly reviews, and budgets that someone is accountable for. The data team usually owns the platform but not the workloads, which means the people writing expensive queries don't see the bill. Closing that loop is the single most effective change for almost any team I've watched go through this.
+
+A reasonable monthly cadence:
+
+- Dashboard: spend by team, by pipeline, by environment, week-over-week.
+- Top 20 most expensive queries, models, and pipelines, with owners.
+- Alerts on anomalous spend (Snowflake's built-in resource monitors, BigQuery custom budgets, etc.).
+- A monthly review with platform engineering and the highest-spend teams.
+
+It's unglamorous work. It also tends to produce 20–40% reductions in the first six months on platforms that haven't done it before. Which is enough to justify the effort by any reasonable measure.
+
+## The point
+
+The modern data stack made compute cheap *enough* to throw at problems. It also made it easy to keep throwing compute at problems long after the marginal value went to zero. Cost optimization is mostly the discipline of noticing that and keeping it from happening. Not a particular tool or vendor feature.

@@ -1,0 +1,61 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+---
+<BaseLayout title="Areas of Interest" description="Domains of practice — streaming, lakehouse, platform design, observability — without project claims.">
+  <h1 class="text-3xl font-bold sm:text-4xl">Areas of Interest</h1>
+  <p class="mt-4 text-lg text-[var(--color-muted)]">
+    Areas of practice, not a project list. The writing here keeps orbiting
+    these four.
+  </p>
+
+  <section id="streaming" class="prose prose-engineering mt-10 scroll-mt-24">
+    <h2>Streaming Systems</h2>
+    <p>
+      Event-driven architectures, partitioned logs, and stateful stream
+      processing. The specific things I keep coming back to: state backends
+      and the cost of checkpointing, the trade-off between in-broker compute
+      (Kafka Streams, ksqlDB) and dedicated processors like Flink,
+      exactly-once delivery as it actually behaves in production, and the
+      slow merge between streaming engines and analytical ones around
+      materialized views over open table formats.
+    </p>
+  </section>
+
+  <section id="lakehouse" class="prose prose-engineering mt-10 scroll-mt-24">
+    <h2>Lakehouse Architectures</h2>
+    <p>
+      Open table formats (Iceberg, Delta, Hudi), the REST catalog spec, and
+      the slow standardization of metadata across query engines. I'm
+      particularly drawn to the operational side: metadata evolution,
+      partition layout, file sizing, compaction strategy at scale. The parts
+      of a lakehouse that don't fit on a marketing slide and that you only
+      really learn about when something starts costing too much or running
+      too slow.
+    </p>
+  </section>
+
+  <section id="platform" class="prose prose-engineering mt-10 scroll-mt-24">
+    <h2>Data Platform Design</h2>
+    <p>
+      The platform layer between raw data and the analytical or operational
+      consumers on top of it: ingestion, transformation, orchestration, the
+      semantic layer, access control, discovery. What I find interesting is
+      the contracts a platform offers and, more importantly, the ones it
+      refuses to. How to grow ownership outward without fragmenting the
+      stack. How to evolve a central platform toward decentralized data
+      product ownership without cargo-culting data mesh in the process.
+    </p>
+  </section>
+
+  <section id="observability" class="prose prose-engineering mt-10 scroll-mt-24">
+    <h2>Observability &amp; Reliability</h2>
+    <p>
+      Data observability in the conventional sense (freshness, volume, schema
+      drift, distribution shifts, lineage) and the larger question underneath:
+      what does reliability even mean when the failure mode is "wrong numbers"
+      instead of "service down"? OpenLineage and similar standards interest
+      me. So do the limits of contract testing, and how teams actually make
+      incident response feel real for data systems instead of theatre.
+    </p>
+  </section>
+</BaseLayout>

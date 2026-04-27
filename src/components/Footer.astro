@@ -1,0 +1,17 @@
+---
+import { SITE } from '~/consts';
+import { withBase } from '~/lib/url';
+const year = new Date().getFullYear();
+---
+<footer class="border-t border-[var(--color-border)] bg-[var(--color-bg)]">
+  <div class="mx-auto flex max-w-5xl flex-col gap-3 px-4 py-8 text-sm text-[var(--color-muted)] sm:flex-row sm:items-center sm:justify-between sm:px-6">
+    <div>
+      © {year} {SITE.author}. Built with Astro &amp; MDX. <a href={withBase('/rss.xml')} class="ml-1">RSS</a>.
+    </div>
+    <div class="flex items-center gap-4">
+      <a href={SITE.github} target="_blank" rel="noopener">GitHub</a>
+      <a href={SITE.linkedin} target="_blank" rel="noopener">LinkedIn</a>
+      <a href={withBase('/api/posts.json')}>posts.json</a>
+    </div>
+  </div>
+</footer>

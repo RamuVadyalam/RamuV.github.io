@@ -1,0 +1,43 @@
+---
+import { SITE } from '~/consts';
+import { withBase, stripBase } from '~/lib/url';
+import ThemeToggle from './ThemeToggle.astro';
+
+const path = stripBase(Astro.url.pathname).replace(/\/$/, '') || '/';
+function isActive(href: string) {
+  if (href === '/') return path === '/';
+  return path === href || path.startsWith(href + '/');
+}
+---
+<header class="border-b border-[var(--color-border)] bg-[var(--color-bg)]/80 backdrop-blur sticky top-0 z-30">
+  <div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+    <a href={withBase('/')} class="group flex items-center gap-2 font-semibold no-underline text-[var(--color-fg)]">
+      <span class="inline-flex h-8 w-8 items-center justify-center rounded-md bg-[var(--color-fg)] text-[var(--color-bg)] font-mono text-sm">de</span>
+      <span class="hidden sm:inline">{SITE.shortTitle}</span>
+    </a>
+
+    <nav aria-label="Primary" class="flex items-center gap-1 text-sm">
+      {SITE.navLinks.map((link) => (
+        <a
+          href={withBase(link.href)}
+          class:list={[
+            'rounded-md px-3 py-1.5 no-underline transition',
+            isActive(link.href)
+              ? 'bg-[var(--color-code-bg)] text-[var(--color-fg)] font-medium'
+              : 'text-[var(--color-muted)] hover:text-[var(--color-fg)] hover:bg-[var(--color-code-bg)]',
+          ]}
+        >
+          {link.label}
+        </a>
+      ))}
+      <a
+        href={withBase('/rss.xml')}
+        class="rounded-md px-3 py-1.5 text-[var(--color-muted)] no-underline transition hover:text-[var(--color-fg)] hover:bg-[var(--color-code-bg)]"
+        aria-label="RSS feed"
+      >
+        RSS
+      </a>
+      <ThemeToggle />
+    </nav>
+  </div>
+</header>

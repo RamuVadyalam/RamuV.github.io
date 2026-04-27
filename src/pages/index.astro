@@ -1,0 +1,77 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import PostCard from '~/components/PostCard.astro';
+import TagPill from '~/components/TagPill.astro';
+import { getPublishedPosts, getAllTags } from '~/lib/posts';
+import { withBase } from '~/lib/url';
+import { SITE } from '~/consts';
+
+const posts = (await getPublishedPosts()).slice(0, 6);
+const tags = [...(await getAllTags()).entries()]
+  .sort((a, b) => b[1] - a[1])
+  .slice(0, 10);
+
+const interests = [
+  { title: 'Streaming Systems', href: withBase('/interests') + '#streaming' },
+  { title: 'Lakehouse Architectures', href: withBase('/interests') + '#lakehouse' },
+  { title: 'Data Platform Design', href: withBase('/interests') + '#platform' },
+  { title: 'Observability & Reliability', href: withBase('/interests') + '#observability' },
+];
+---
+<BaseLayout>
+  <section class="mb-14">
+    <p class="font-mono text-xs uppercase tracking-widest text-[var(--color-muted)]">
+      data engineering · architecture · systems
+    </p>
+    <h1 class="mt-3 text-4xl font-bold leading-tight sm:text-5xl">
+      {SITE.title}
+    </h1>
+    <p class="mt-4 max-w-2xl text-lg text-[var(--color-muted)]">
+      16+ years in Data Engineering — systems, architecture, and real-world
+      scalability. A working notebook on lakehouses, streaming, observability,
+      orchestration, and how the cloud data ecosystem keeps re-arranging itself.
+    </p>
+    <div class="mt-6 flex flex-wrap gap-3 text-sm">
+      <a href={withBase('/blog')} class="rounded-md bg-[var(--color-fg)] px-4 py-2 font-medium text-[var(--color-bg)] no-underline">Read the blog →</a>
+      <a href={withBase('/about')} class="rounded-md border border-[var(--color-border)] px-4 py-2 no-underline text-[var(--color-fg)]">About</a>
+      <a href={SITE.github} target="_blank" rel="noopener" class="rounded-md border border-[var(--color-border)] px-4 py-2 no-underline text-[var(--color-fg)]">GitHub ↗</a>
+    </div>
+  </section>
+
+  <section class="mb-14">
+    <div class="mb-4 flex items-baseline justify-between">
+      <h2 class="text-xl font-semibold">Latest writing</h2>
+      <a href={withBase('/blog')} class="text-sm">All posts →</a>
+    </div>
+    <div>
+      {posts.map((post) => <PostCard post={post} />)}
+    </div>
+  </section>
+
+  <section class="mb-14">
+    <h2 class="mb-4 text-xl font-semibold">Areas of Interest</h2>
+    <p class="mb-4 text-[var(--color-muted)]">
+      The systems and design problems I keep coming back to. These are domains
+      of practice — not project listings.
+    </p>
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {interests.map((it) => (
+        <a
+          href={it.href}
+          class="block rounded-lg border border-[var(--color-border)] bg-[var(--color-card)] p-4 no-underline transition hover:border-[var(--color-accent)]"
+        >
+          <span class="text-base font-medium text-[var(--color-fg)]">{it.title}</span>
+        </a>
+      ))}
+    </div>
+  </section>
+
+  {tags.length > 0 && (
+    <section class="mb-4">
+      <h2 class="mb-3 text-xl font-semibold">Topics</h2>
+      <div class="flex flex-wrap gap-2">
+        {tags.map(([t, c]) => <TagPill tag={t} count={c} />)}
+      </div>
+    </section>
+  )}
+</BaseLayout>

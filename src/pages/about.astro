@@ -1,0 +1,59 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import { SITE } from '~/consts';
+---
+<BaseLayout title="About" description="Career-level summary of focus areas across data platforms, streaming, lakehouse, and reliability.">
+  <h1 class="text-3xl font-bold sm:text-4xl">About</h1>
+  <p class="mt-4 text-lg text-[var(--color-muted)]">
+    A short version of who I am and what I tend to write about. Not a résumé.
+  </p>
+
+  <section class="prose prose-engineering mt-8">
+    <p>
+      I've spent the last <strong>16+ years</strong> building data systems,
+      mostly in places where things were either growing fast enough or breaking
+      often enough to make the platform interesting. The job titles changed,
+      the stack changed several times, but the work didn't really. I design
+      and run systems that move a lot of data, expose it for analytics and
+      products downstream, and try to keep the result something a small team
+      can actually operate without burning out.
+    </p>
+
+    <p>
+      The tooling has gone through a few generations on me. On-prem Hadoop,
+      then MPP warehouses, then big monolithic ETL jobs, and now object-storage
+      lakehouses with open table formats and decoupled compute. The questions
+      underneath are stubbornly the same ones. How do pipelines stay correct
+      when something upstream fails halfway through? Where should state
+      actually live? And what should the platform refuse to do, even when it
+      could?
+    </p>
+
+    <h2>What I work on</h2>
+    <ul>
+      <li><strong>Distributed data systems.</strong> Partitioning, consistency, fault tolerance, and the operational tax that comes with each design choice.</li>
+      <li><strong>Streaming architecture.</strong> Event time vs processing time, exactly-once (when it actually means anything), state backends, and the line between streaming and serving.</li>
+      <li><strong>Data platforms and lakehouse architecture.</strong> Open table formats, catalog design, multi-engine analytics, and the constant tug-of-war between flexibility and standardization.</li>
+      <li><strong>Cloud data engineering on AWS, GCP, and Azure.</strong> Managed warehouses, object storage as the system of record, and the FinOps reality nobody quite signs up for.</li>
+      <li><strong>Reliability and observability.</strong> Freshness, lineage, contracts, and treating data products with the same operational seriousness as services.</li>
+    </ul>
+
+    <h2>How I think about the work</h2>
+    <p>
+      Data systems are sociotechnical. The hard problems are rarely algorithmic.
+      They're usually about ownership boundaries, who's allowed to change what,
+      and what happens when something upstream shifts quietly. I try to write
+      about the parts that travel well across stacks: patterns, tradeoffs, and
+      where the ecosystem seems to be heading. Tutorials for a specific vendor
+      go stale fast, so I mostly leave those to the docs.
+    </p>
+
+    <h2>About this site</h2>
+    <p>
+      This is a working notebook more than a blog. Posts are aimed at
+      senior-engineer-level architecture and systems thinking, not step-by-step
+      walkthroughs. Source is on <a href={SITE.github} target="_blank" rel="noopener">GitHub</a>;
+      everything is statically generated with Astro and MDX.
+    </p>
+  </section>
+</BaseLayout>

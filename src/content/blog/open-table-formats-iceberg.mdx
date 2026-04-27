@@ -1,0 +1,79 @@
+---
+title: "Open Table Formats and the Quiet Iceberg Takeover"
+description: "Why Iceberg is becoming the de facto open table format in 2025 — and why the REST catalog spec, not the format itself, is the real story."
+pubDate: 2025-10-06
+tags: ["iceberg", "lakehouse", "catalog", "architecture"]
+readingMinutes: 8
+---
+
+If you're following the data infrastructure space, you've probably noticed the same thing. Every major analytical engine and warehouse, in the last 18 months, has made some sort of public commitment to **Apache Iceberg**. Snowflake added managed Iceberg tables and open-sourced **Polaris**, an Iceberg REST catalog. Databricks acquired Tabular for over a billion dollars and pushed **UniForm**, which lets Delta tables be read as Iceberg. AWS, Google, and most of the open-source query engines (Trino, Spark, Flink, ClickHouse, DuckDB) speak Iceberg natively.
+
+It's tempting to read all that as "Iceberg won the format war." Which is true, but it understates what's happening. The format was the necessary thing. The **REST catalog spec** is the sufficient thing. And it's why this matters more than previous "open standard" efforts in data.
+
+## A quick refresher on what an open table format does
+
+An open table format puts a metadata layer between a query engine and a pile of files in object storage. The metadata gives you ACID semantics, schema evolution, hidden partitioning, time travel, and a single consistent view across engines.
+
+Iceberg's specific contribution was a metadata model that's tractable at scale. A tree of files (`metadata.json` → manifest list → manifests → data files), explicit partition transforms, and an atomic-swap commit model based on swapping the current `metadata.json` pointer.
+
+```
+TABLE  ──►  metadata.json (v9)
+                │
+                ├── snapshots: [v1, v2, …, v9]
+                │       │
+                │       └─ snapshot v9
+                │            │
+                │            └─ manifest-list.avro
+                │                    │
+                │                    ├─ manifest-A.avro ─► [data files…]
+                │                    └─ manifest-B.avro ─► [data files…]
+                │
+                ├── schemas: [s1, s2, s3]    ◄── schema evolution lives here
+                ├── partition-specs: [p1, p2] ◄── partition layout can change
+                └── sort-orders: [...]
+```
+
+Two architectural decisions made Iceberg portable in a way Hive tables (and arguably Delta) never were. First, partitioning is part of the metadata, not the directory structure. You can change partition strategy without rewriting data, and engines plan against the metadata rather than relying on directory globbing. Second, snapshots are first-class objects, which makes time travel, rollback, and incremental reads natural rather than tacked-on.
+
+## The catalog has always been the bottleneck
+
+For years, the practical problem with "open" table formats was the catalog. A table format only tells you how to read a table once you know where its current metadata file is. The thing that maps `db.schema.table` to "current metadata pointer" is the catalog, and historically every system had its own:
+
+- Hive Metastore (the old default, largely obsolete now)
+- AWS Glue Data Catalog
+- Databricks' Unity Catalog
+- Snowflake's internal catalog
+- Per-vendor proprietary catalogs across BI tools and data platforms
+
+You could store data as Iceberg, but if your catalog was vendor-locked, you weren't really portable. You were one vendor decision away from being unable to read your own data with your engine of choice.
+
+The **Iceberg REST catalog spec** changed the conversation. It defines a simple HTTP API for catalog operations (list namespaces, load tables, commit metadata, manage snapshots), and any catalog implementation that speaks the spec is interchangeable. From the engine's perspective, "the catalog" is now an HTTP endpoint, not a vendor-specific client library.
+
+Once that spec stabilized, two big things happened in quick succession:
+
+1. **Snowflake released Polaris**, an open-source Iceberg REST catalog, and donated it to the ASF as Apache Polaris (incubating). Snowflake managed Iceberg tables can be governed by Polaris and read by any Iceberg client.
+2. **Databricks acquired Tabular** (for a reported $1B+) and committed to making Unity Catalog interoperable with the Iceberg REST spec. Combined with UniForm (Delta tables that publish Iceberg-compatible metadata), Databricks is positioning Unity Catalog as a multi-format catalog.
+
+The cumulative effect is that, for the first time, you can credibly design a data platform where:
+
+- Storage is open (Parquet on S3/GCS/ADLS).
+- Format is open (Iceberg).
+- Catalog is open (REST spec, with multiple implementations).
+- Engines are pluggable (Spark for ETL, Trino for BI, ClickHouse/StarRocks for low-latency, DuckDB for laptops).
+
+That's not a marketing slide. That's an actual portability story.
+
+## The remaining lock-in points
+
+Open does not mean cost-free. Some honest caveats:
+
+- **Catalog *implementations* still differ.** REST-compliant doesn't mean feature-equivalent. Things like row-level access control, audit logs, and lineage integrations are where vendors will continue to differentiate. Migrating between catalog implementations is doable. Migrating between catalog *governance models* is much harder.
+- **Compute economics still favor the platform that owns the catalog.** Whoever's engine is "closest" to the catalog gets the best query performance and the best cost model. That's a soft form of gravity.
+- **Operational tooling is uneven.** Compaction, snapshot expiration, optimize jobs. Every engine does these slightly differently, and running them across multiple engines on the same tables takes discipline.
+- **Hudi and Delta aren't going away.** Hudi remains the strongest answer for primary-key indexed streaming upserts. Delta is the path of least resistance inside Databricks. Iceberg is winning the *neutral* ground.
+
+## What this means for new platforms
+
+If you're designing a data platform from scratch in 2025, the default-without-thinking choice is now: object storage + Iceberg + a REST-compliant catalog + whichever engines fit your workloads. That doesn't mean you should be ideological about it. There are good reasons to pick a vendor-managed stack. But you should know what you're trading away if you don't.
+
+The thing to watch over the next 12 to 18 months is how the catalog implementations evolve. Polaris vs Unity Catalog vs vendor-managed REST catalogs (and the open-source Nessie, which has its own approach with branching/tagging on top of Iceberg) will shape what "open" actually means in practice. The format part is settled. The governance part is still being negotiated.

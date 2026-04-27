@@ -1,0 +1,89 @@
+---
+title: "Data Mesh: A Reality Check"
+description: "What worked, what didn't, and why most successful 'data mesh' implementations look more like a paved-road platform with domain ownership."
+pubDate: 2025-12-01
+tags: ["data-mesh", "platform", "organization", "architecture"]
+readingMinutes: 8
+---
+
+By 2022, "data mesh" was the dominant conversation in data architecture. Every conference talk, every vendor positioning, every consultancy slide deck had a mesh diagram on it. By 2024 the conversation had visibly cooled. Some teams quietly walked back early-stage decentralization efforts. Others rebranded ongoing platform work as "the mesh." A smaller group genuinely built something resembling Zhamak Dehghani's original four-principle vision and learned hard lessons doing it.
+
+It's worth looking at what actually worked, what didn't, and what the next iteration of "decentralized data" probably looks like. Without either dismissing the idea or pretending the original vision shipped intact.
+
+## A short refresher
+
+The four principles, briefly:
+
+1. **Domain ownership.** Data is owned by the domain that produces it, not a central data team.
+2. **Data as a product.** Datasets have owners, SLOs, documentation, discoverability, and consumers treated as customers.
+3. **Self-serve data platform.** A central platform provides infrastructure so domains don't each build their own.
+4. **Federated computational governance.** Global standards (interop, security, naming) enforced through automation rather than committee.
+
+The original argument: central data teams become bottlenecks at scale, the people closest to the data understand its semantics best, and modern infrastructure is good enough to push ownership outward without giving up consistency.
+
+That argument is mostly correct. The implementation difficulty was systematically underestimated.
+
+## What worked
+
+**Domain ownership of source-aligned data.** The clearest win. When the team that produces an entity (orders, payments, users, claims) also owns its canonical representation in the data platform, contracts get enforced, schemas stay stable, and breaking changes get caught at the producer instead of being discovered by a downstream consumer in production. This is the part of mesh that almost every successful implementation kept, regardless of whether they kept calling it mesh.
+
+**Data products as a framing.** Treating a critical dataset as a product, with an owner, a documented contract, an SLO, and discoverability, is just good practice. It doesn't matter what you call your architecture. Tools like DataHub, Atlan, OpenMetadata, and Acryl made the discoverability part real. Most teams got value from this independently of any decentralization.
+
+**Pushing transformation closer to producers.** Source-aligned dbt projects owned by domain teams (often called "dbt mesh" patterns now) work well when the central platform provides the runtime, conventions, and contracts.
+
+## What didn't
+
+**Federated governance was vastly underestimated.** "Standards via automation" sounds clean. In practice, getting 15 domain teams to agree on a naming convention, a schema validation rule, a PII tagging standard, a retention policy, and a backwards-compatibility policy, and then building automation to enforce all of it, is a multi-year platform investment. Most teams that tried mesh-as-decentralization without first building this layer ended up with N inconsistent dialects and no central body empowered to fix it.
+
+**"Decentralized" became "central team has no leverage."** A common failure pattern. Leadership reorgs the central data team into a "platform" team and tells every domain to own their data. The domains have no data engineers, no platform, and no time. The platform team has no authority and no scope. Six months later, half the domains have built their own bespoke pipelines on whatever was nearest to hand, and the central team is firefighting integration issues for the rest.
+
+**Cargo-culted org charts.** Reorganizing reporting lines does not produce data products. It produces confused engineers and broken pipelines. The teams I've seen succeed treated the org structure as the *result* of having functioning data products, not the precondition.
+
+**Discoverability without ownership is a graveyard.** Standing up a catalog, importing every table, and calling it a mesh produces a lot of half-documented datasets with no owner and no SLO. Searchability without trustworthiness is worse than nothing. It gives consumers the false impression they've found something usable.
+
+**The "self-serve platform" was bigger than anyone budgeted.** A real self-serve data platform is roughly: ingestion templates, pipeline scaffolding, contract enforcement, observability, lineage, access control, catalog integration, cost attribution, and a CI/CD pattern. That's a multi-team multi-year investment, not a sprint.
+
+## What the successful patterns look like now
+
+Most teams genuinely doing well in 2025 have converged on something more pragmatic than the original mesh vision. The shape, roughly:
+
+```
+                 ┌──────────────────────────────────────────────────┐
+                 │  Central platform team                            │
+                 │  - Lakehouse + catalog                            │
+                 │  - Ingestion / CDC patterns                       │
+                 │  - Orchestrator & runtime                         │
+                 │  - Observability, lineage, contract enforcement   │
+                 │  - Access control & cost attribution              │
+                 └─────────┬────────────────────────────────────────┘
+                           │ provides paved road
+        ┌──────────────────┼──────────────────┐
+        ▼                  ▼                  ▼
+  ┌──────────┐       ┌──────────┐       ┌──────────┐
+  │ Domain A │       │ Domain B │       │ Domain C │   ← own their
+  │ (orders) │       │ (users)  │       │ (payments)│    source-aligned
+  └─────┬────┘       └─────┬────┘       └─────┬─────┘    data products
+        │                  │                  │
+        └──────────────────┼──────────────────┘
+                           ▼
+              Consumer-aligned marts (analytics, ML)
+              owned by analytics teams or domains as needed
+```
+
+This is not "the mesh." It's also not "central monolith." It's a paved-road platform with domain ownership of producer-aligned data products and explicit interfaces for everything else. The catalog, the lineage, and the contracts are real. The domains do real work but don't reinvent the platform.
+
+## The honest principles
+
+If I were starting this conversation again with a team in 2025, the principles I'd push are:
+
+- **Build the platform first, then push ownership outward.** The mesh requires a paved road. Building one without the road creates dirt paths.
+- **Ownership is the part that matters.** Most of the value of "data as a product" comes from someone being on the hook for the dataset, full stop.
+- **Contracts at the boundaries, not everywhere.** Source-aligned data products and exposed marts get strict contracts. The middle is where iteration happens.
+- **Catalog quality beats catalog coverage.** A catalog with 500 trustworthy datasets is more useful than one with 50,000 datasets of unknown freshness.
+- **Federated governance only works with central teeth.** Some entity has to be empowered to say no. To a non-conforming schema, an unsafe access pattern, an SLO violation. "Federated" doesn't mean "no enforcement."
+
+## The pattern, abstracted
+
+Anyone who's worked on distributed systems will recognize the shape. It's the same lesson microservices taught us a decade earlier. You don't get the benefits of decentralization for free. You earn them by investing heavily in the infrastructure that makes decentralization safe: service discovery, observability, contract testing, deployment automation. Without that, "microservices" produces a distributed monolith with worse tooling, and "data mesh" produces a distributed swamp.
+
+The original mesh insight, that data ownership belongs with domains and that data should be treated as a product, was correct. The engineering reality is that getting there requires building a platform almost nobody had in 2020, and most teams are still building in 2025.

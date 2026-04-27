@@ -1,0 +1,86 @@
+---
+title: "Real-Time Streaming at Scale: Kafka vs Flink in 2025"
+description: "Kafka is the log; Flink is the compute. Why that division of labor settled the way it did, and where the lines are starting to blur."
+pubDate: 2025-09-22
+tags: ["streaming", "kafka", "flink", "architecture"]
+readingMinutes: 9
+---
+
+If you're asking "Kafka or Flink," you're asking the wrong question. They aren't competitors. Kafka is a durable, partitioned log. Flink is a stateful stream processor. Production streaming platforms almost always use both. The interesting questions are *where the boundary lives* between them, and where, in 2025, that boundary is starting to move.
+
+## What each one is, in one sentence
+
+- **Kafka** is a distributed commit log: producers append, consumers read by offset, partitions provide ordering and parallelism, and the broker keeps the data around long enough to be replayable.
+- **Flink** is a distributed stateful stream processor: it consumes from sources, maintains keyed state in a managed backend, processes events with event-time semantics, and emits results to sinks with end-to-end exactly-once when the sinks cooperate.
+
+Everything else in the streaming ecosystem (Kafka Streams, ksqlDB, Spark Structured Streaming, Materialize, RisingWave) is some variation on those two roles, with different ergonomics and tradeoffs.
+
+## The standard topology
+
+```
+┌──────────┐   produce   ┌──────────────┐   consume   ┌──────────┐
+│ Sources  │────────────►│   Kafka      │◄────────────│ Flink    │
+│ (CDC,    │             │  (topics,    │             │ (jobs,   │
+│  apps,   │             │  partitions) │             │  state,  │
+│  events) │             │              │             │  windows)│
+└──────────┘             └──────┬───────┘             └────┬─────┘
+                                │                          │
+                                ▼                          ▼
+                       ┌─────────────────┐         ┌──────────────┐
+                       │ Other consumers │         │ Sinks: DBs,  │
+                       │ (analytics,     │         │ warehouses,  │
+                       │  search, etc.)  │         │ Iceberg, …   │
+                       └─────────────────┘         └──────────────┘
+```
+
+Kafka decouples producers from consumers and gives you replayability, which is the single most underrated property of an event-driven architecture. Flink does the work that's hard to express as stateless transforms: joins across streams, windowed aggregations, sessionization, dedup with TTLs, complex event processing.
+
+## Where the in-broker compute story comes in
+
+Kafka Streams (a JVM library) and ksqlDB (a SQL layer over Kafka Streams) keep state inside the consumer group, backed by changelog topics in Kafka itself. That has real advantages:
+
+- One operational system instead of two.
+- State is replicated for free via Kafka.
+- Deployment model is "spin up another consumer."
+
+It also has hard limits. State size is bounded by what your consumers can hold and replay, joins across many topics get awkward, and you don't get Flink's event-time processing primitives at the same level of polish. For straightforward stateful work it's fine. For the harder stuff, Flink wins.
+
+Confluent's acquisition of **Immerok** (the company built around managed Flink) and the launch of Confluent's managed Flink offering essentially made the official answer: use Kafka Streams for simple stateful transforms close to the broker, and Flink for the heavy stateful work. Both are first-class.
+
+## The tradeoffs that actually matter at scale
+
+**Event time vs processing time.** Flink's watermark model is a real engineering investment. It's not optional once you care about correctness on out-of-order data. Most of the bugs I've seen in streaming systems came from teams treating processing time as event time and silently producing wrong aggregates around late-arriving events.
+
+**State backend choice.** Flink's RocksDB backend is the default for any serious workload. The heap-based backend is only viable for small state. Once you're on RocksDB, you start caring about disk type (NVMe vs network), checkpoint storage (S3 vs HDFS vs managed), and incremental checkpointing (yes, always).
+
+**Exactly-once is end-to-end or nothing.** Flink's two-phase commit gives you exactly-once if your sinks support it. Kafka and (recently) Iceberg sinks do. Many JDBC sinks don't. If your terminal sink is "at-least-once," your pipeline is at-least-once, no matter how many times the brochure says "exactly-once."
+
+**Kafka topic design is a long-lived decision.** Partition count sets your maximum parallelism for that topic forever. You can add partitions, but you can't repartition existing data without re-keying. Choosing a key that gives you both ordering guarantees and balanced load is one of those decisions that looks easy and isn't.
+
+**Schema evolution.** Schema Registry and a strict compatibility policy aren't optional on a shared bus. The first time a producer ships a backwards-incompatible change to a topic with 30 consumers, you'll wish you'd enforced it from day one.
+
+## The new entrants — streaming SQL with materialized views
+
+Two adjacent systems are worth tracking: **Materialize** and **RisingWave**. Both expose streaming SQL with incrementally maintained materialized views over Kafka (and other) sources. The promise is that your "real-time analytical view" is just a SQL view that the engine keeps fresh, rather than a Flink job you build, deploy, and operate.
+
+Where this lands in the architecture:
+
+- For low-latency operational analytics where you'd otherwise stand up Flink jobs to feed a serving DB, streaming SQL engines are a real simplification.
+- They aren't a Flink replacement for arbitrary stateful processing. They're a sweet spot for "I want this query continuously fresh."
+- Iceberg sinks from Flink and from streaming SQL engines are converging the streaming and lakehouse worlds. Fresh data lands as a queryable Iceberg table that any engine can read.
+
+## When to reach for what
+
+A rough heuristic, with all the usual caveats:
+
+- **Stateless transforms, fan-out, format conversion** → consumer in any language, or Kafka Connect.
+- **Simple stateful logic, lightly-keyed state, low ops appetite** → Kafka Streams or ksqlDB.
+- **Real stateful processing, complex joins, event-time correctness, exactly-once** → Flink.
+- **"Keep this query fresh as the underlying topics change"** → streaming SQL (Materialize, RisingWave) or Flink SQL plus a serving DB.
+- **Land streaming data as a queryable analytical table** → Flink → Iceberg sink, then any engine.
+
+## The shape of a streaming platform in 2025
+
+Production streaming platforms today look fairly consistent. Kafka as the log, schema registry as the contract layer, Flink for serious stateful processing, Kafka Connect or CDC tools (Debezium, etc.) for ingest, and increasingly Iceberg as the analytical sink rather than a separate warehouse copy.
+
+The hard problems aren't really about which engine you pick. They're about: what does each topic *mean*, who owns it, how do you evolve schemas without breaking 20 downstream consumers, and how do you reason about end-to-end latency and correctness in a system where every component has its own retry semantics. Picking Kafka and Flink gives you good building blocks. It does not give you a platform.

@@ -1,0 +1,29 @@
+{
+  "name": "ramuv-github-io",
+  "type": "module",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Data Engineering Insights & Architecture Notes — personal blog built with Astro, MDX, and Tailwind.",
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview --host",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/mdx": "^4.0.3",
+    "@astrojs/rss": "^4.0.10",
+    "@astrojs/sitemap": "^3.2.1",
+    "@tailwindcss/typography": "^0.5.15",
+    "@tailwindcss/vite": "^4.0.0",
+    "astro": "^5.1.1",
+    "tailwindcss": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.20.0"
+  }
+}
